@@ -2,8 +2,8 @@ import argparse
 import os
 from dotenv import load_dotenv
 
-from note_linker import find_and_link_notes_with_embeddings
-from note_quality import rate_notes
+from src.modules.note_linker import find_and_link_notes_with_embeddings
+from src.modules.note_quality import rate_notes
 
 
 def main():
