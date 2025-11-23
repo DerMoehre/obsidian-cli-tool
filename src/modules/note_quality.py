@@ -5,7 +5,7 @@ import time
 import os
 import yaml
 
-def get_note_rating_from_ollama(text, model_name="llama3"):
+def get_note_rating_from_ollama(text: str, ollama_client) -> dict:
     """
     Sends a note's content to a language model to get a rating and feedback.
     The model is instructed to respond in a structured JSON format.
@@ -17,7 +17,6 @@ def get_note_rating_from_ollama(text, model_name="llama3"):
     Returns:
         dict: A dictionary containing the rating and suggestions, or an empty dict on failure.
     """
-    url = "http://localhost:11434/api/generate"
 
     RATING_PROMPT_TEMPLATE = f"""You are a meticulous note-taking assistant. Your task is to rate the quality of a given Markdown note based on two criteria: information density and completeness. The rating should be on a scale from 1 to 10. You will also provide a single, actionable piece of feedback for improvement.
 
@@ -37,52 +36,51 @@ def get_note_rating_from_ollama(text, model_name="llama3"):
     Note content:
     {text}
     """
-    payload = {
-        "model": model_name,
-        "prompt": RATING_PROMPT_TEMPLATE,
-        "stream": False,
-        "options": {
-            "temperature": 0.0 # Use a low temperature for more deterministic output
-        }
-    }
 
     try:
-        print(f"  > Getting rating from Ollama using model '{model_name}'...")
-        response = requests.post(url, data=json.dumps(payload), headers={"Content-Type": "application/json"})
-        response.raise_for_status()
-        
-        rating_result = json.loads(response.text)
-        
-        if "response" in rating_result:
-            json_str = rating_result["response"]
-            if json_str.startswith("```json"):
-                json_str = json_str[7:]
-            if json_str.endswith("```"):
-                json_str = json_str[:-3]
-            json_str = json_str.strip()
-            
-            rating_data = json.loads(json_str)
+        print(f"  > Getting rating from Ollama ...")
+        raw_response = ollama_client.generate(
+            prompt=RATING_PROMPT_TEMPLATE, 
+            json_mode=True 
+        )
+
+        if not raw_response:
+            print("  > No response from Ollama.")
+            return {}
+                
+        try:
+            if raw_response.startswith("```json"):
+                raw_response = raw_response[7:]
+            if raw_response.endswith("```"):
+                raw_response = raw_response[:-3]
+
+            rating_data = json.loads(raw_response.strip())
+
             if "rating" in rating_data and "feedback" in rating_data:
-                print(f"  > Received rating: {rating_data['rating']} and feedback: {rating_data['feedback']}")
+                print(f"  > Rating: {rating_data['rating']} and feedback.")
                 return rating_data
-    
-    except requests.exceptions.RequestException as e:
-        print(f"Error connecting to Ollama server: {e}")
-    except json.JSONDecodeError as e:
-        print(f"Error parsing JSON from Ollama: {e}")
+            else:
+                print(f"Did not receive a valid JSON format from model: {rating_data}")
+                return {}
+        except json.JSONDecodeError as e:
+            print(f"Error on parsing the JSON response of Ollama: {e}")
+            return {}
+        except Exception as e:
+            print(f"An unexpected error occured while parsing the answer: {e}")
+            return {}
+        
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        print(f"An unexpected error occured while getting rating from Ollama: {e}")
+        return {}
     
-    return {}
-    
-def rate_notes(vault_path: str, ollama_model_name:str = "llama3"):
+def rate_notes(vault_path: str, ollama_client):
     """
     Analyzes each note in the vault, gets a rating from an LLM, and adds
     a 'Note Quality' section with the rating and feedback.
 
     Args:
         vault_path (str): The absolute path to your Obsidian vault directory.
-        ollama_model_name (str): The name of the Ollama language model to use.
+        ollama_client: Initialised ollama client.
     """
     for root, _, files in os.walk(vault_path):
         for file in files:
@@ -94,7 +92,7 @@ def rate_notes(vault_path: str, ollama_model_name:str = "llama3"):
                     content = f.read()
 
                 # Get the rating from Ollama
-                rating_result = get_note_rating_from_ollama(content, ollama_model_name)
+                rating_result = get_note_rating_from_ollama(content, ollama_client)
                 
                 if rating_result:
                     rating = rating_result.get("rating")

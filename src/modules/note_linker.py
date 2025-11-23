@@ -4,41 +4,14 @@ import os
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
-def get_embedding_from_ollama(text:str, model_name="nomic-embed-text")->list:
-    """
-    Sends text to a local Ollama instance to get its vector embedding.
-    Args:
-        text (str): The text content to embed.
-        model_name (str): The name of the Ollama embedding model to use.
-
-    Returns:
-        list: A list of floats representing the vector embedding.
-    """
-    url = "http://localhost:11434/api/embeddings"
-    payload = {
-        "model": model_name,
-        "prompt": text,
-        "stream": False
-    }
-
-    try:
-        response = requests.post(url, json=payload, timeout=60)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("embedding", [])
-    except requests.exceptions.RequestException as e:
-        print(f"Error connecting to Ollama for embedding: {e}")
-        print("Please ensure Ollama is running and the embedding model is pulled.")
-        return []
-
-def find_and_link_notes_with_embeddings(vault_path:str, ollama_model_name="nomic-embed-text"):
+def find_and_link_notes_with_embeddings(vault_path:str, ollama_client, SIMILARITY_THRESHOLD:float = 0.75):
     """
     Scans an Obsidian vault, calculates embeddings for each note, and
     automatically links the most semantically similar notes.
 
     Args:
         vault_path (str): The absolute path to your Obsidian vault directory.
-        ollama_model_name (str): The name of the Ollama embedding model to use.
+        ollama_client (str): The initialised ollama object.
     """
     print(f"Scanning vault at: {vault_path}")
 
@@ -69,7 +42,7 @@ def find_and_link_notes_with_embeddings(vault_path:str, ollama_model_name="nomic
     print("\nGenerating embeddings for all notes...")
     note_embeddings = []
     for note in all_notes:
-        embedding = get_embedding_from_ollama(note["content"], model_name=ollama_model_name)
+        embedding = ollama_client.get_embedding(note["content"])
         if embedding:
             note_embeddings.append({
                 "title": note["title"],
@@ -85,14 +58,10 @@ def find_and_link_notes_with_embeddings(vault_path:str, ollama_model_name="nomic
     linked_count = 0
     
     # --- Step 3: Find and link semantically similar notes ---
-    # Convert embeddings to a single NumPy array for efficient calculation
     embeddings_matrix = np.array([item["embedding"] for item in note_embeddings])
     
     # Calculate the cosine similarity matrix for all notes
     similarity_matrix = cosine_similarity(embeddings_matrix)
-
-    # We will use a threshold to decide if notes are similar enough to link.
-    SIMILARITY_THRESHOLD = 0.7
     
     # Iterate through each note to find its best matches
     for i, source_note in enumerate(note_embeddings):
